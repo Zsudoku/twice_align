@@ -484,9 +484,9 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             # 计算水平
             # horizontalAngleChange = magnification_k * horizontalPixelDifference
             if horizontalPixelDifference > 0:
-                horizontalAngleChange = 0.6
+                horizontalAngleChange = 1
             else:
-                horizontalAngleChange = -0.6
+                horizontalAngleChange = -1
             horizontalAngleFinall = initHorizontalAngel + horizontalAngleChange
                 
             if horizontalAngleFinall < 0:
@@ -496,9 +496,9 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             # # 计算俯仰
             
             if verticalPixelDifference > 0:
-                verticalAngleChange = 0.6
+                verticalAngleChange = 1
             else:
-                verticalAngleChange = -0.6
+                verticalAngleChange = -1
             verticalAngleFinall = initVerticalAngel + verticalAngleChange  
             if verticalAngleFinall < 0:
                 verticalAngleFinall = 360 + verticalAngleFinall
@@ -618,7 +618,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             else:
                 print_to_file_and_console('x轴像素变化量为:')
                 print_to_file_and_console(firstHorizontalPixelDifference)
-                HorizontalMagnification_k = 0.6 / firstHorizontalPixelDifference
+                HorizontalMagnification_k = 1 / firstHorizontalPixelDifference
                 print_to_file_and_console('x轴像素-云台变化率为:')
                 print_to_file_and_console(HorizontalMagnification_k)
             
@@ -628,7 +628,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             else:
                 print_to_file_and_console('y轴像素变化量为:')
                 print_to_file_and_console(firstVerticalPixelDifference)
-                VerticalMagnification_k = 0.6 / firstVerticalPixelDifference
+                VerticalMagnification_k = 1 / firstVerticalPixelDifference
                 print_to_file_and_console('y轴像素-云台变化率为:')
                 print_to_file_and_console(VerticalMagnification_k)
 
