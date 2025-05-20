@@ -402,6 +402,16 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 magnification = zoom_val
             except:
                 print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)*float(pitching_val)*float(magnification) == 0:
+                time.sleep(0.5)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
             initHorizontalAngel = float(bearing_val / 100)
             initVerticalAngel = float(pitching_val / 100)
             print_to_file_and_console('云台参数获取成功！')
@@ -451,7 +461,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                     roi_h = meter['h']
                     x1, y1, x2, y2 = int(roi_x), int(roi_y), int(roi_x)+int(roi_w), int(roi_y)+int(roi_h)
                     img_template = cv2.imread(template_path)
-                    roi_template = img_template[y1:y2, x1:x2]
+                    # roi_template = img_template[y1:y2, x1:x2]
                     
                     # print_to_file_and_console(roi_x,roi_y,roi_w,roi_h)
                     
@@ -459,9 +469,10 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
 
             img = cv2.imread(input_path)
             cv2.imwrite('first_image.jpg', img)
-            roi_template = unevenLightCompensate(roi_template,20)
+            img_template = unevenLightCompensate(img_template,20)
+            roi_template = img_template[y1:y2, x1:x2]
             img = unevenLightCompensate(img,20)
-            res = cv2.matchTemplate(img, roi_template, cv2.TM_CCORR_NORMED)
+            res = cv2.matchTemplate(img, roi_template, cv2.TM_CCOEFF_NORMED)
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 
             # 绘制矩形框
@@ -540,6 +551,17 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 magnification = zoom_val
             except:
                 print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)*float(pitching_val)*float(magnification) == 0:
+                time.sleep(0.5)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
+    
             initHorizontalAngel = float(bearing_val / 100)
             initVerticalAngel = float(pitching_val / 100)
             print_to_file_and_console('云台参数获取成功！')
@@ -589,7 +611,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                     roi_h = meter['h']
                     x1, y1, x2, y2 = int(roi_x), int(roi_y), int(roi_x)+int(roi_w), int(roi_y)+int(roi_h)
                     img_template = cv2.imread(template_path)
-                    roi_template = img_template[y1:y2, x1:x2]
+                   #  roi_template = img_template[y1:y2, x1:x2]
                     
                     # print_to_file_and_console(roi_x,roi_y,roi_w,roi_h)
                     
@@ -597,9 +619,10 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
 
             img = cv2.imread(input_path)
             cv2.imwrite('seconed_image.jpg', img)
-            roi_template = unevenLightCompensate(roi_template,20)
+            img_template = unevenLightCompensate(img_template,20)
+            roi_template = img_template[y1:y2, x1:x2]
             img = unevenLightCompensate(img,20)
-            res = cv2.matchTemplate(img, roi_template, cv2.TM_CCORR_NORMED)
+            res = cv2.matchTemplate(img, roi_template, cv2.TM_CCOEFF_NORMED)
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 
             # 绘制矩形框
@@ -631,9 +654,12 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 VerticalMagnification_k = 1 / firstVerticalPixelDifference
                 print_to_file_and_console('y轴像素-云台变化率为:')
                 print_to_file_and_console(VerticalMagnification_k)
-
-            horizontalPixelDifference =  -round(top_left[0] - (960 - (roi_w / 2)))
-            verticalPixelDifference = -round(top_left[1] - (540 - (roi_h / 2)))
+            imgCenter_x = top_left[0] + (roi_w / 2)
+            imgCenter_y = top_left[1] + (roi_h / 2 )
+            print_to_file_and_console('图像中心点为:')
+            print_to_file_and_console(f'{imgCenter_x},{imgCenter_y}')
+            horizontalPixelDifference =  -round(imgCenter_x - 960)
+            verticalPixelDifference = -round(imgCenter_y - 540)
             print_to_file_and_console('水平和垂直变化像素为:')
             print_to_file_and_console(f'{horizontalPixelDifference},{verticalPixelDifference}')
 
