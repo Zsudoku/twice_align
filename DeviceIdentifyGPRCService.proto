@@ -1,0 +1,34 @@
+
+syntax = "proto3";
+
+
+option java_multiple_files = true;
+option java_package = "com.robot.robotGrpc.DeviceIdentifyGPRC";
+option java_outer_classname = "DeviceIdentifyGPRC";
+option objc_class_prefix = "DI";
+
+
+package DeviceIdentifyGPRC;
+
+service DeviceIdentifyGPRCService {
+  rpc Identify (paths) returns (identifyValue) {}
+  rpc location(paths)returns (locationValue){}
+}
+message paths
+{
+	string modelpath=1;
+	string filepath=2;
+}
+
+// valueType: 0-数值 1-字符
+message identifyValue{
+    string mValue=1;
+	int32 valueType=2;
+}
+
+message locationValue {
+    int32 x=1;
+	int32 y=2;
+	int32 w=3;
+	int32 h=4;
+}
