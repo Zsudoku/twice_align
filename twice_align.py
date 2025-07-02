@@ -10,6 +10,10 @@ import numpy as np
 import os
 import time
 import datetime
+import time
+import logging
+import logging.handlers
+
 class PTZClient:
     def __init__(self, host='localhost', port=10011):
         self.channel = grpc.insecure_channel(f'{host}:{port}')
@@ -215,11 +219,93 @@ class PTZClient:
         response = self.stub.setFocusAutoMode(request)
         return response
 
-def print_to_file_and_console(message1, message2='1',file_path=f'{time.time()}.txt'):
-    message2 = datetime.datetime.now()
-    print(message2,message1)  # 打印到控制台
-    with open(file_path, 'a') as f:  # 'a' 表示追加模式
-        print(message2,message1, file=f)  # 写入文件
+class DatedTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """自定义日志处理器，文件名包含当前日期"""
+    def __init__(self, filename, when='midnight', interval=1, backupCount=0, 
+                 encoding=None, delay=False, utc=False, atTime=None):
+        # 生成带日期的文件名
+        base, ext = os.path.splitext(filename)
+
+        dated_filename = f"{base}_{datetime.now().strftime('%Y%m%d')}{ext}"
+        
+        # 调用父类初始化
+        super().__init__(
+            filename=dated_filename,
+            when=when,
+            interval=interval,
+            backupCount=backupCount,
+            encoding=encoding,
+            delay=delay,
+            utc=utc,
+            atTime=atTime
+        )
+        
+        # 存储基础文件名用于后续滚动
+        self.base_filename = filename
+        self.base, self.ext = base, ext
+        self.current_date = datetime.now().date()
+        
+    def shouldRollover(self, record):
+        """检查是否需要滚动日志（日期变化时）"""
+        current_date = datetime.now().date()
+        if current_date != self.current_date:
+            self.current_date = current_date
+            return True
+        return False
+        
+    def doRollover(self):
+        """执行日志滚动（创建新日期文件）"""
+        # 关闭当前流
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+            
+        # 生成新日期文件名
+        new_filename = f"{self.base}_{self.current_date.strftime('%Y%m%d')}{self.ext}"
+        self.baseFilename = new_filename
+        
+        # 打开新文件
+        if not self.delay:
+            self.stream = self._open()
+        
+        # 处理备份文件
+        if self.backupCount > 0:
+            for s in self.getFilesToDelete():
+                os.remove(s)
+
+# 检查并创建日志目录
+log_directory = "log"
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+# 创建日志记录器
+logger = logging.getLogger("my_app")
+logger.setLevel(logging.DEBUG)
+
+# 使用自定义的日期文件处理器
+log_path = os.path.join(log_directory, "Flir.log")  # 日志文件路径
+file_handler = DatedTimedRotatingFileHandler(
+    filename=log_path,  # 日志文件保存路径
+    when='midnight',     # 每天午夜检查
+    backupCount=7,       # 保留7天日志
+    encoding='utf-8'     # 解决中文乱码
+)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s'
+))
+
+        
+def ensure_directory_exists(directory_path):
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+        logger.info(f"目录 {directory_path} 不存在，已创建。")
+    else:
+        logger.info(f"目录 {directory_path} 已存在。")
+
+dir_temp_img = "temp_img"
+ensure_directory_exists(dir_temp_img)
+
+
 def unevenLightCompensate(img, blockSize):
 	gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 	average = np.mean(gray)
@@ -376,7 +462,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
         # 模板图像与输入图像路径
         if first_x_value < 0:
             #第一次对准
-            print_to_file_and_console('一次对准开启...')
+            logger.info('一次对准开启...')
             template_path = request.modelpath  #"D:/FirstAlignment/2024-09-19/0.jpg"
             input_path = request.filepath  #"D:/FirstAlignment/2024-09-19/4.jpg"
             # 获取json路径
@@ -385,15 +471,16 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             new_extension = ".json"
             new_path = os.path.join(directory, filename + new_extension)
             file_path = new_path  #"D:/FirstAlignment/2024-09-19/0.json"
-            print_to_file_and_console(f'一次对准路径:')
-            print_to_file_and_console(input_path)
-            print_to_file_and_console(f'模板路径:')
-            print_to_file_and_console(template_path)
-            print_to_file_and_console(f'json路径:')
-            print_to_file_and_console(new_path)
-            print_to_file_and_console('开始获取云台参数...')
+            logger.info(f'一次对准路径:')
+            logger.info(input_path)
+            logger.info(f'模板路径:')
+            logger.info(template_path)
+            logger.info(f'json路径:')
+            logger.info(new_path)
+            logger.info('开始获取云台参数...')
             areas = []
             # 获取俯仰角与放大倍率
+            ''' 
             try:
                 client = PTZClient()
                 bearing_val = client.get_bearing_val()
@@ -401,9 +488,10 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 zoom_val = client.get_zoom()
                 magnification = zoom_val
             except:
-                print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
-            if float(bearing_val)*float(pitching_val)*float(magnification) == 0:
-                time.sleep(0.5)
+                logger.info('获取云台失败，请检查云台连接是否正确...')
+    
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
                 try:
                     client = PTZClient()
                     bearing_val = client.get_bearing_val()
@@ -411,17 +499,63 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                     zoom_val = client.get_zoom()
                     magnification = zoom_val
                 except:
-                    print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            '''
+            while True:
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    # zoom_val = client.get_zoom()
+                    # magnification = zoom_val
+                except:
+                    logger.exception('获取云台失败，请检查云台连接是否正确...')
+                if float(bearing_val) == -1 or float(pitching_val) == -1:
+                    logger.warning('云台获取数据异常，重新获取...')
+                    time.sleep(0.2)
+                else:
+                    break
+            
             initHorizontalAngel = float(bearing_val / 100)
             initVerticalAngel = float(pitching_val / 100)
-            print_to_file_and_console('云台参数获取成功！')
-            print_to_file_and_console('放大倍率:')
-            print_to_file_and_console(magnification)
-            print_to_file_and_console('水平角:')
-            print_to_file_and_console(bearing_val)
-            print_to_file_and_console('俯仰角:')
-            print_to_file_and_console(pitching_val)
-            print_to_file_and_console('开始解析json文档...')
+            logger.info('云台参数获取成功！')
+            # logger.info('放大倍率:')
+            # logger.info(magnification)
+            logger.info('水平角:')
+            logger.info(bearing_val)
+            logger.info('俯仰角:')
+            logger.info(pitching_val)
+            logger.info('开始解析json文档...')
             # # test start 
             # magnification = 4243
             # initHorizontalAngel = 18.44
@@ -436,7 +570,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             # 创建一个列表来存储所有的区域信息，每个区域信息是一个字典
             # 获取区域信息
             areas_info = data['areas']['areas_info']
-            print_to_file_and_console(len(areas_info))
+            logger.info(len(areas_info))
             for area in areas_info:
                 area_roi = area['area_ROI']
                 meters = []
@@ -463,12 +597,19 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                     img_template = cv2.imread(template_path)
                     # roi_template = img_template[y1:y2, x1:x2]
                     
-                    # print_to_file_and_console(roi_x,roi_y,roi_w,roi_h)
+                    # logger.info(roi_x,roi_y,roi_w,roi_h)
                     
-            print_to_file_and_console('开始进行第一次对准...')
-
-            img = cv2.imread(input_path)
-            cv2.imwrite('first_image.jpg', img)
+            logger.info('开始进行第一次对准...')
+            try:
+                img = cv2.imread(input_path)
+            except Exception as e:
+                logger.exception(f"发生错误: {e}")
+                data = {"first_x_value": 0,"first_y_value": 0}
+                with open('first_x_value.json', 'w') as file:
+                    json.dump(data, file)
+                return DeviceIdentifyGPRCService_pb2.identifyValue(mValue=0, valueType=0)
+            # img = cv2.imread(input_path)
+            cv2.imwrite(f'./{dir_temp_img}/{filename}_first_image.jpg', img)
             img_template = unevenLightCompensate(img_template,20)
             roi_template = img_template[y1:y2, x1:x2]
             img = unevenLightCompensate(img,20)
@@ -480,13 +621,13 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             bottom_right = (top_left[0] + roi_w, top_left[1] + roi_h)
             # 模版匹配后的仪表图像
             roi_img = img[top_left[1]:bottom_right[1],top_left[0]:bottom_right[0]]  
-            cv2.imwrite('saved_image_path.jpg', roi_img)
+            cv2.imwrite(f'./{dir_temp_img}/{filename}_saved_image_path.jpg', roi_img)
 
-            # print_to_file_and_console(top_left)
+            # logger.info(top_left)
             horizontalPixelDifference =  -round(top_left[0] - (960 - (roi_w / 2)))
             verticalPixelDifference = -round(top_left[1] - (540 - (roi_h / 2)))
-            # print_to_file_and_console('水平和垂直变化像素为:')
-            # print_to_file_and_console(f'{horizontalPixelDifference},{verticalPixelDifference}')
+            # logger.info('水平和垂直变化像素为:')
+            # logger.info(f'{horizontalPixelDifference},{verticalPixelDifference}')
             # # test start
             # horizontalPixelDifference =  897
             # verticalPixelDifference = 310
@@ -517,14 +658,14 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 verticalAngleFinall = verticalAngleFinall - 360
             horizontalAngleFinall = int(round(horizontalAngleFinall * 100, 0))
             verticalAngleFinall = int(round(verticalAngleFinall * 100, 0))
-            print_to_file_and_console('第一次对准完成，云台调整到：')
-            print_to_file_and_console(f'{horizontalAngleFinall},{verticalAngleFinall}')
+            logger.info('第一次对准完成，云台调整到：')
+            logger.info(f'{horizontalAngleFinall},{verticalAngleFinall}')
             data = {"first_x_value": top_left[0],"first_y_value": top_left[1]}
             with open('first_x_value.json', 'w') as file:
                 json.dump(data, file)
 
         else:
-            print_to_file_and_console('第二次对准开启...')
+            logger.info('第二次对准开启...')
             
             template_path = request.modelpath  #"D:/FirstAlignment/2024-09-19/0.jpg"
             input_path = request.filepath  #"D:/FirstAlignment/2024-09-19/4.jpg"
@@ -534,15 +675,16 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             new_extension = ".json"
             new_path = os.path.join(directory, filename + new_extension)
             file_path = new_path  #"D:/FirstAlignment/2024-09-19/0.json"
-            print_to_file_and_console(f'一次对准路径:')
-            print_to_file_and_console(input_path)
-            print_to_file_and_console(f'模板路径:')
-            print_to_file_and_console(template_path)
-            print_to_file_and_console(f'json路径:')
-            print_to_file_and_console(new_path)
-            print_to_file_and_console('开始获取云台参数...')
+            logger.info(f'一次对准路径:')
+            logger.info(input_path)
+            logger.info(f'模板路径:')
+            logger.info(template_path)
+            logger.info(f'json路径:')
+            logger.info(new_path)
+            logger.info('开始获取云台参数...')
             areas = []
             # 获取俯仰角与放大倍率
+            '''
             try:
                 client = PTZClient()
                 bearing_val = client.get_bearing_val()
@@ -550,9 +692,9 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 zoom_val = client.get_zoom()
                 magnification = zoom_val
             except:
-                print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
-            if float(bearing_val)*float(pitching_val)*float(magnification) == 0:
-                time.sleep(0.5)
+                logger.info('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
                 try:
                     client = PTZClient()
                     bearing_val = client.get_bearing_val()
@@ -560,18 +702,63 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                     zoom_val = client.get_zoom()
                     magnification = zoom_val
                 except:
-                    print_to_file_and_console('获取云台失败，请检查云台连接是否正确...')
-    
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            if float(bearing_val)+float(pitching_val)+float(magnification) == 0:
+                time.sleep(0.2)
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    zoom_val = client.get_zoom()
+                    magnification = zoom_val
+                except:
+                    logger.info('获取云台失败，请检查云台连接是否正确...')
+            '''
+            while True:
+                try:
+                    client = PTZClient()
+                    bearing_val = client.get_bearing_val()
+                    pitching_val = client.get_pitching_val()
+                    # zoom_val = client.get_zoom()
+                    # magnification = zoom_val
+                except:
+                    logger.exception('获取云台失败，请检查云台连接是否正确...')
+                if float(bearing_val) == -1 or float(pitching_val) == -1:
+                    logger.warning('云台获取数据异常，重新获取...')
+                    time.sleep(0.2)
+                else:
+                    break
+           
             initHorizontalAngel = float(bearing_val / 100)
             initVerticalAngel = float(pitching_val / 100)
-            print_to_file_and_console('云台参数获取成功！')
-            print_to_file_and_console('放大倍率:')
-            print_to_file_and_console(magnification)
-            print_to_file_and_console('水平角:')
-            print_to_file_and_console(bearing_val)
-            print_to_file_and_console('俯仰角:')
-            print_to_file_and_console(pitching_val)
-            print_to_file_and_console('开始解析json文档...')
+            logger.info('云台参数获取成功！')
+            # logger.info('放大倍率:')
+            # logger.info(magnification)
+            logger.info('水平角:')
+            logger.info(bearing_val)
+            logger.info('俯仰角:')
+            logger.info(pitching_val)
+            logger.info('开始解析json文档...')
             # # test start 
             # magnification = 4243
             # initHorizontalAngel = 18.44
@@ -586,7 +773,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             # 创建一个列表来存储所有的区域信息，每个区域信息是一个字典
             # 获取区域信息
             areas_info = data['areas']['areas_info']
-            print_to_file_and_console(len(areas_info))
+            logger.info(len(areas_info))
             for area in areas_info:
                 area_roi = area['area_ROI']
                 meters = []
@@ -613,12 +800,28 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                     img_template = cv2.imread(template_path)
                    #  roi_template = img_template[y1:y2, x1:x2]
                     
-                    # print_to_file_and_console(roi_x,roi_y,roi_w,roi_h)
+                    # logger.info(roi_x,roi_y,roi_w,roi_h)
                     
-            print_to_file_and_console('开始进行第二次对准...')
-
-            img = cv2.imread(input_path)
-            cv2.imwrite('seconed_image.jpg', img)
+            logger.info('开始进行第二次对准...')
+            try:
+                img = cv2.imread(input_path)
+            except Exception as e:
+                logger.exception(f"发生错误: {e}")
+                _json_file_path = 'first_x_value.json'
+                # /home/zngd613/robot/zk/one_align/first_x_value.json
+                # 删除文件
+                try:
+                    os.remove(_json_file_path)
+                    logger.info(f"文件 {_json_file_path} 已删除")
+                except FileNotFoundError:
+                    logger.error(f"文件 {_json_file_path} 不存在")
+                except PermissionError:
+                    logger.error(f"没有权限删除文件 {_json_file_path}")
+                except Exception as e:
+                    logger.exception(f"删除文件 {_json_file_path} 时发生错误: {e}")
+                return DeviceIdentifyGPRCService_pb2.identifyValue(mValue=0, valueType=0)
+            # img = cv2.imread(input_path)
+            cv2.imwrite(f'./{dir_temp_img}/{filename}_seconed_image.jpg', img)
             img_template = unevenLightCompensate(img_template,20)
             roi_template = img_template[y1:y2, x1:x2]
             img = unevenLightCompensate(img,20)
@@ -630,38 +833,38 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             bottom_right = (top_left[0] + roi_w, top_left[1] + roi_h)
             # 模版匹配后的仪表图像
             roi_img = img[top_left[1]:bottom_right[1],top_left[0]:bottom_right[0]]  
-            cv2.imwrite('saved_image_path2.jpg', roi_img)
+            cv2.imwrite(f'./{dir_temp_img}/{filename}_saved_image_path2.jpg', roi_img)
 
             firstHorizontalPixelDifference = abs(round(first_x_value - top_left[0]))
             firstVerticalPixelDifference = abs(round(first_y_value - top_left[1]))
             
             if firstHorizontalPixelDifference==0:
-                print_to_file_and_console('没有检测到x轴像素变化量')
+                logger.info('没有检测到x轴像素变化量')
                 HorizontalMagnification_k = 0
             else:
-                print_to_file_and_console('x轴像素变化量为:')
-                print_to_file_and_console(firstHorizontalPixelDifference)
+                logger.info('x轴像素变化量为:')
+                logger.info(firstHorizontalPixelDifference)
                 HorizontalMagnification_k = 1 / firstHorizontalPixelDifference
-                print_to_file_and_console('x轴像素-云台变化率为:')
-                print_to_file_and_console(HorizontalMagnification_k)
+                logger.info('x轴像素-云台变化率为:')
+                logger.info(HorizontalMagnification_k)
             
             if firstVerticalPixelDifference==0:
-                print_to_file_and_console('没有检测到y轴像素变化量')
+                logger.info('没有检测到y轴像素变化量')
                 VerticalMagnification_k = 0
             else:
-                print_to_file_and_console('y轴像素变化量为:')
-                print_to_file_and_console(firstVerticalPixelDifference)
+                logger.info('y轴像素变化量为:')
+                logger.info(firstVerticalPixelDifference)
                 VerticalMagnification_k = 1 / firstVerticalPixelDifference
-                print_to_file_and_console('y轴像素-云台变化率为:')
-                print_to_file_and_console(VerticalMagnification_k)
+                logger.info('y轴像素-云台变化率为:')
+                logger.info(VerticalMagnification_k)
             imgCenter_x = top_left[0] + (roi_w / 2)
             imgCenter_y = top_left[1] + (roi_h / 2 )
-            print_to_file_and_console('图像中心点为:')
-            print_to_file_and_console(f'{imgCenter_x},{imgCenter_y}')
+            logger.info('图像中心点为:')
+            logger.info(f'{imgCenter_x},{imgCenter_y}')
             horizontalPixelDifference =  -round(imgCenter_x - 960)
             verticalPixelDifference = -round(imgCenter_y - 540)
-            print_to_file_and_console('水平和垂直变化像素为:')
-            print_to_file_and_console(f'{horizontalPixelDifference},{verticalPixelDifference}')
+            logger.info('水平和垂直变化像素为:')
+            logger.info(f'{horizontalPixelDifference},{verticalPixelDifference}')
 
             
             # 计算水平
@@ -681,8 +884,8 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 
             horizontalAngleFinall = int(round(horizontalAngleFinall * 100, 0))
             verticalAngleFinall = int(round(verticalAngleFinall * 100, 0))
-            print_to_file_and_console('第二次对准完成，云台调整到：')
-            print_to_file_and_console(f'{horizontalAngleFinall},{verticalAngleFinall}')
+            logger.info('第二次对准完成，云台调整到：')
+            logger.info(f'{horizontalAngleFinall},{verticalAngleFinall}')
             #删除文件
 
             # 文件路径
@@ -691,13 +894,13 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             # 删除文件
             try:
                 os.remove(_json_file_path)
-                print_to_file_and_console(f"文件 {_json_file_path} 已删除")
+                logger.info(f"文件 {_json_file_path} 已删除")
             except FileNotFoundError:
-                print_to_file_and_console(f"文件 {_json_file_path} 不存在")
+                logger.error(f"文件 {_json_file_path} 不存在")
             except PermissionError:
-                print_to_file_and_console(f"没有权限删除文件 {_json_file_path}")
+                logger.error(f"没有权限删除文件 {_json_file_path}")
             except Exception as e:
-                print_to_file_and_console(f"删除文件 {_json_file_path} 时发生错误: {e}")
+                logger.exception(f"删除文件 {_json_file_path} 时发生错误: {e}")
             
         return DeviceIdentifyGPRCService_pb2.identifyValue(mValue=f"{horizontalAngleFinall}", valueType=verticalAngleFinall)
 
@@ -710,7 +913,7 @@ def serve():
     DeviceIdentifyGPRCService_pb2_grpc.add_DeviceIdentifyGPRCServiceServicer_to_server(DeviceIdentifyGPRCService(), server)
     server.add_insecure_port('[::]:22215')
     server.start()
-    print_to_file_and_console("Server running on port 22215...")
+    logger.info("Server running on port 22215...")
     try:
         while True:
             time.sleep(86400)
@@ -726,12 +929,12 @@ if __name__ == '__main__':
 # if os.path.exists(_json_file_path):
 #     try:
 #         os.remove(_json_file_path)
-#         print_to_file_and_console(f"文件 {_json_file_path} 已删除")
+#         logger.info(f"文件 {_json_file_path} 已删除")
 #     except FileNotFoundError:
-#         print_to_file_and_console(f"文件 {_json_file_path} 不存在")
+#         logger.info(f"文件 {_json_file_path} 不存在")
 #     except PermissionError:
-#         print_to_file_and_console(f"没有权限删除文件 {_json_file_path}")
+#         logger.info(f"没有权限删除文件 {_json_file_path}")
 #     except Exception as e:
-#         print_to_file_and_console(f"删除文件 {_json_file_path} 时发生错误: {e}")
+#         logger.info(f"删除文件 {_json_file_path} 时发生错误: {e}")
 # else:
 #     pass
