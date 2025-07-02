@@ -272,7 +272,6 @@ class DatedTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
         if self.backupCount > 0:
             for s in self.getFilesToDelete():
                 os.remove(s)
-
 # 检查并创建日志目录
 log_directory = "log"
 if not os.path.exists(log_directory):
@@ -283,7 +282,7 @@ logger = logging.getLogger("my_app")
 logger.setLevel(logging.DEBUG)
 
 # 使用自定义的日期文件处理器
-log_path = os.path.join(log_directory, "Flir.log")  # 日志文件路径
+log_path = os.path.join(log_directory, "twice_align.log")  # 日志文件路径
 file_handler = DatedTimedRotatingFileHandler(
     filename=log_path,  # 日志文件保存路径
     when='midnight',     # 每天午夜检查
@@ -293,7 +292,16 @@ file_handler = DatedTimedRotatingFileHandler(
 file_handler.setFormatter(logging.Formatter(
     '%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s'
 ))
+# 创建控制台处理器
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter(
+    '[%(levelname)s] %(message)s'
+))
 
+# 添加处理器
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
         
 def ensure_directory_exists(directory_path):
     if not os.path.exists(directory_path):
@@ -920,7 +928,7 @@ def serve():
     except KeyboardInterrupt:
         server.stop(0)
 
-if __name__ == '__main__':
+if __name__ == '__main__':  
     serve()
 
 
