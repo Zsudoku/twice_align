@@ -13,6 +13,7 @@ from datetime import datetime
 import time
 import logging
 import logging.handlers
+import sqlite3
 
 class PTZClient:
     def __init__(self, host='localhost', port=10011):
@@ -747,11 +748,11 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                     client = PTZClient()
                     bearing_val = client.get_bearing_val()
                     pitching_val = client.get_pitching_val()
-                    # zoom_val = client.get_zoom()
+                    zoom_val = client.get_zoom()
                     # magnification = zoom_val
                 except:
                     logger.exception('获取云台失败，请检查云台连接是否正确...')
-                if float(bearing_val) == -1 or float(pitching_val) == -1:
+                if float(bearing_val) == -1 or float(pitching_val) == -1 or float(zoom_val) == -1:
                     logger.warning('云台获取数据异常，重新获取...')
                     time.sleep(0.2)
                 else:
@@ -767,6 +768,7 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
             logger.info('俯仰角:')
             logger.info(pitching_val)
             logger.info('开始解析json文档...')
+            
             # # test start 
             # magnification = 4243
             # initHorizontalAngel = 18.44
@@ -809,7 +811,14 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                    #  roi_template = img_template[y1:y2, x1:x2]
                     
                     # logger.info(roi_x,roi_y,roi_w,roi_h)
-                    
+            logger.info('开始连接数据库...')
+            # 连接到数据库
+            try:
+                conn = sqlite3.connect('one_align_db.db')
+                logger.info('数据库连接成功！')
+            except sqlite3.Error as e:
+                logger.exception(f"数据库连接失败: {e}")
+                return DeviceIdentifyGPRCService_pb2.identifyValue(mValue=0, valueType=0)
             logger.info('开始进行第二次对准...')
             try:
                 img = cv2.imread(input_path)
@@ -865,6 +874,17 @@ class DeviceIdentifyGPRCService(DeviceIdentifyGPRCService_pb2_grpc.DeviceIdentif
                 VerticalMagnification_k = 1 / firstVerticalPixelDifference
                 logger.info('y轴像素-云台变化率为:')
                 logger.info(VerticalMagnification_k)
+            # 插入数据
+            
+            try:
+                conn.execute(f"INSERT INTO zoom (id, zoom, v_k, h_k) VALUES ({int(filename)}, {int(zoom_val)}, {float(VerticalMagnification_k)}, {float(HorizontalMagnification_k)})")
+                conn.commit()
+                logger.info("数据插入成功")
+                conn.close()
+            except sqlite3.Error as e:
+                logger.exception(f"插入数据失败: {e}")
+                conn.close()            
+                
             imgCenter_x = top_left[0] + (roi_w / 2)
             imgCenter_y = top_left[1] + (roi_h / 2 )
             logger.info('图像中心点为:')
